@@ -30,3 +30,4 @@
 *.exe
 *.out
 *.app
+scope_exit_test
