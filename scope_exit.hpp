@@ -7,10 +7,10 @@
 
 namespace mpl
 {
-	// need to do:
-	// 1.) using F, that is functor with overloaded operator(). (2 and more operaotr() in class of F)
-	//
-	template <typename F, typename ... Args>
+	// CFT - callable type of functor with overloaded 'operator()'(manually setted)
+	// F - type of callable object(derived)
+	// Args... - derived types of arguments
+	template <typename CFT, typename F, typename ... Args>
 	class scope_exit final
 	{
 	private:
@@ -140,21 +140,65 @@ namespace mpl
 		};
 		
 		//
-		template <typename T>
+		template <typename T, typename XCFT>
 		struct get_param_types
+		{	
+			template <typename XT, typename U>
+			struct extract;
+			//
+			template <typename XT, typename R, typename ... XArgs>
+			struct extract<XT, R(XArgs...)>
+			{
+				using type = R(XT::*)(XArgs...);
+				using for_call_type = XT&;
+				
+				static constexpr bool const_interface = false;
+			};
+			//
+			template <typename XT, typename R, typename ... XArgs>
+			struct extract<XT, R(XArgs...) const>
+			{
+				using type = R(XT::*)(XArgs...) const;
+				using for_call_type = XT const&;
+				
+				static constexpr bool const_interface = true;
+			};
+			
+			using type = typename extract<T, XCFT>::type;
+			using for_call_type = typename extract<T, XCFT>::for_call_type;
+			
+			static constexpr bool const_interface = extract<T, XCFT>::const_interface;
+		};
+		//
+		template <typename T>
+		struct get_param_types<T, void>
 		{
 			using type = decltype( &T::operator() );
+			using for_call_type = void;
+			
+			static constexpr bool const_interface = false;
 		};
 		//
 		template <typename R, typename ... FArgs>
-		struct get_param_types<R(*)(FArgs...)>
+		struct get_param_types<R(*)(FArgs...), void>
 		{
 			using type = R(FArgs...);
+			using for_call_type = void;
+			
+			static constexpr bool const_interface = false;
 		};
 		
 		//
 		template <size_t ... I>
-		void call(std::index_sequence<I...>)
+		void call(std::true_type, std::index_sequence<I...>)
+		{
+			static_cast<for_call_type>(m_f)(
+				std::forward<Args>( std::get<I>(m_args) ) ...
+			);
+		}
+		//
+		template <size_t ... I>
+		void call(std::false_type, std::index_sequence<I...>)
 		{
 			m_f( std::forward<Args>( std::get<I>(m_args) ) ... );
 		}
@@ -170,7 +214,18 @@ namespace mpl
 		
 		~ scope_exit()
 		{
-			if(m_active) call( std::make_index_sequence<sizeof ... (Args)>() );
+			using selection_type = typename std::conditional<
+				std::is_same<CFT, void>::value,
+				std::false_type,
+				std::true_type
+			>::type;
+			if(m_active) {
+				call(
+					selection_type(),
+					std::make_index_sequence<sizeof ... (Args)>()
+				);
+			}
+			return;
 		}
 		
 		void activate() noexcept { m_active = true; }
@@ -178,22 +233,43 @@ namespace mpl
 		void disactivate() noexcept { m_active = false; }
 		
 	private:
+		using f_type = typename std::remove_reference<F>::type;
+		using call_type = typename get_param_types< f_type, CFT >::type;
+		using for_call_type = typename get_param_types< f_type, CFT >::for_call_type;
+		
+		static constexpr bool const_interface = get_param_types< f_type, CFT >::const_interface;
+		
+		static_assert(
+			!(std::is_const<f_type>::value && !const_interface),
+			"Can't call non const method for cons object"
+		);
+		
+	private:
 		F m_f;
 		std::tuple<Args...> m_args;
 		bool m_active;
 		// for templates instantiation only
-		bool m_check = callable_checker<
-			typename get_param_types<F>::type,
-			Args...
-		>::type::value && types_checker<Args...>::value;
+		bool m_check = callable_checker< call_type, Args... >::type::value &&
+							types_checker<Args...>::value;
 	};
 	
+	
+	template <typename CFT, typename F, typename ... Args>
+	auto make_scope_exit(F && f, Args && ... args)
+	{
+		static_assert(
+			std::is_class< typename std::remove_reference<F>::type >::value,
+			"You can specify CFT only for classes and structures"
+		);
+		return scope_exit<CFT, F, Args...>( std::forward<F>(f), std::forward<Args>(args)... );
+	}
 	
 	template <typename F, typename ... Args>
 	auto make_scope_exit(F && f, Args && ... args)
 	{
-		return scope_exit<F, Args...>( std::forward<F>(f), std::forward<Args>(args)... );
+		return scope_exit<void, F, Args...>( std::forward<F>(f), std::forward<Args>(args)... );
 	}
+	//
 }
 
 

@@ -67,8 +67,9 @@ struct one2
 
 struct one3
 {
-	void operator() () {}
-	void operator () (int) {}
+	void operator() () { std::cout << "one3::operator()\n"; }
+	void operator() () const { std::cout << "one3::operator() const\n"; }
+	void operator () (int) { std::cout << "one3::operator(int)\n"; }
 };
 
 
@@ -88,7 +89,7 @@ int main ()
 	//	""
 	//);
 	
-	// static_assert fails compilation because except is not excaption safe at destruction
+	// static_assert fails compilation because except is not exception safe at destruction
 	//auto se5 = make_scope_exit(
 	//	[] () -> except {
 	//		std::cout << "========zzz2========\n";
@@ -118,8 +119,16 @@ int main ()
 		}, 1.1, 123
 	);
 	
-	// NOT realised now ! Need finish for such functors. See line 11 in scope_exit.hpp
-	//auto se11 = make_scope_exit( one3() );
+	// if you use overloaded functor, you must specify type of 'operator()' in first template argument
+	const one3 o31;
+	one3 o32;
+	auto se11 = make_scope_exit<void()>( o32 );
+	auto se12 = make_scope_exit<void() const>( o32 );
+	auto se13 = make_scope_exit<void() const>( one3() );
+	auto se14 = make_scope_exit<void()>( one3() );
+	auto se15 = make_scope_exit<void() const>( o31 );
+	// You can't call non const method for const object
+	//auto se16 = make_scope_exit<void()>( o31 );
 	
 	return 0;
 }
